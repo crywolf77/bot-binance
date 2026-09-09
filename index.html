@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binance Swing Bot Mobile</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body { background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; padding: 20px; }
+        .app-card { background: #1e293b; width: 100%; max-width: 400px; border-radius: 20px; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .title { font-size: 20px; font-weight: bold; color: #f1f5f9; }
+        .badge { padding: 6px 12px; border-radius: 12px; font-weight: bold; font-size: 12px; }
+        .bg-green { background: #059669; color: #ecfdf5; }
+        .bg-red { background: #dc2626; color: #fef2f2; }
+        .stat-box { background: #0f172a; border-radius: 12px; padding: 16px; margin-bottom: 16px; text-align: center; }
+        .stat-label { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-value { font-size: 24px; font-weight: bold; margin-top: 4px; color: #38bdf8; }
+        .btn { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 8px; }
+        .btn-pause { background: #ef4444; color: white; }
+        .btn-start { background: #10b981; color: white; }
+        .input-group { margin-top: 16px; }
+        .input-group label { font-size: 12px; color: #94a3b8; display: block; margin-bottom: 6px; }
+        .input-group input, .input-group select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; }
+        .log-box { font-size: 11px; color: #64748b; margin-top: 20px; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="app-card">
+    <div class="header">
+        <div class="title">🚀 Swing Bot</div>
+        <div id="status-badge" class="badge bg-green">INICIANDO...</div>
+    </div>
+
+    <div class="stat-box">
+        <div class="stat-label">Par Ativo</div>
+        <div id="stat-symbol" class="stat-value">BTCUSDT</div>
+    </div>
+
+    <div class="stat-box">
+        <div class="stat-label">Última Análise</div>
+        <div id="stat-last-time" style="font-size: 14px; margin-top: 6px; color: #e2e8f0;">--:--:--</div>
+    </div>
+
+    <div class="input-group">
+        <label>Mudar Par de Negociação</label>
+        <select id="select-symbol">
+            <option value="BTCUSDT">BTC/USDT</option>
+            <option value="ETHUSDT">ETH/USDT</option>
+            <option value="SOLUSDT">SOL/USDT</option>
+        </select>
+    </div>
+
+    <button id="btn-toggle" class="btn btn-pause" onclick="alternarStatus()">PAUSAR BOT</button>
+
+    <div id="log-info" class="log-box">Conectando ao servidor...</div>
+</div>
+
+<script>
+    const API_URL = 'http://localhost:8000';
+    let estadoAtual = { ativo: true, simbolo: 'BTCUSDT' };
+
+    async function atualizarPainel() {
+        try {
+            const res = await fetch(`${API_URL}/status`);
+            const data = await res.json();
+            
+            estadoAtual.ativo = data.ativo;
+            estadoAtual.simbolo = data.simbolo;
+
+            document.getElementById('stat-symbol').innerText = data.simbolo;
+            document.getElementById('stat-last-time').innerText = data.ultima_analise;
+            document.getElementById('log-info').innerText = `Status do sistema: ${data.status_sistema}`;
+
+            const badge = document.getElementById('status-badge');
+            const btn = document.getElementById('btn-toggle');
+
+            if (data.ativo) {
+                badge.innerText = "ONLINE 🟢";
+                badge.className = "badge bg-green";
+                btn.innerText = "PAUSAR BOT";
+                btn.className = "btn btn-pause";
+            } else {
+                badge.innerText = "PAUSADO 🔴";
+                badge.className = "badge bg-red";
+                btn.innerText = "ATIVAR BOT";
+                btn.className = "btn btn-start";
+            }
+        } catch (e) {
+            document.getElementById('log-info').innerText = "Erro ao conectar com a API Python";
+        }
+    }
+
+    async function alternarStatus() {
+        const novoSimbolo = document.getElementById('select-symbol').value;
+        const novoStatus = !estadoAtual.ativo;
+
+        try {
+            await fetch(`${API_URL}/controle`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ativo: novoStatus,
+                    simbolo: novoSimbolo,
+                    quantidade: 0.001
+                })
+            });
+            atualizarPainel();
+        } catch (e) {
+            alert("Erro ao enviar comando para o servidor");
+        }
+    }
+
+    // Atualiza o painel a cada 3 segundos
+    setInterval(atualizarPainel, 3000);
+    atualizarPainel();
+</script>
+
+</body>
+</html>
