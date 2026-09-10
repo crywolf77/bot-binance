@@ -1,98 +1,46 @@
 import asyncio
-import time
-from datetime import datetime
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import uvicorn
+import estrategia
 
-# Importa a função de estratégia que já criamos e testamos
-from estrategia import analisar_sinal_e_executar
-
-# Inicializa a API FastAPI
-app = FastAPI(title="Binance Trading Bot & Control API", version="2.0.0")
-
-# -------------------------------------------------------------
-# ESTADO GLOBAL (Compartilhado entre a API e o Robô)
-# -------------------------------------------------------------
-estado_robo = {
-    "ativo": True,
-    "simbolo": "BTCUSDT",
-    "quantidade": 0.001,
-    "intervalo_minutos": 15,
-    "ultima_analise": "Aguardando início...",
-    "ultima_ordem": "Nenhuma ordem executada ainda",
-    "status_sistema": "Iniciando..."
-}
-
-class ConfiguracaoRequest(BaseModel):
-    ativo: bool
+# Estrutura para receber requisições de mudança de par
+class ConfigUpdate(BaseModel):
     simbolo: str
-    quantidade: float = 0.001
 
-# -------------------------------------------------------------
-# LOOP ASSÍNCRONO DO ROBÔ (Executa 24/7 em segundo plano)
-# -------------------------------------------------------------
-async def loop_principal_robo():
-    print("🤖 Loop do Robô iniciado com sucesso em segundo plano!")
-    
-    while True:
-        agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        estado_robo["ultima_analise"] = agora
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Inicia a execução da estratégia em segundo plano ao ligar o servidor
+    task = asyncio.create_task(estrategia.iniciar_loop())
+    yield
+    # Cancela a tarefa ao desligar
+    task.cancel()
 
-        # 1. Checa se o usuário pausou o robô pelo aplicativo
-        if not estado_robo["ativo"]:
-            estado_robo["status_sistema"] = "PAUSADO PELO USUÁRIO 🔴"
-            print(f"[{agora}] ⏸️ Robô em pausa. Aguardando ativação pelo aplicativo...")
-        else:
-            estado_robo["status_sistema"] = "EXECUTANDO 🟢"
-            print(f"[{agora}] 🔍 Executando análise para {estado_robo['simbolo']}...")
-            
-            try:
-                # Executa a estratégia de análise de mercado
-                analisar_sinal_e_executar(
-                    simbolo=estado_robo["simbolo"],
-                    quantidade=estado_robo["quantidade"]
-                )
-            except Exception as e:
-                print(f"⚠️ Erro ao analisar mercado: {e}")
+app = FastAPI(lifespan=lifespan)
 
-        # Aguarda o intervalo configurado (ex: 15 minutos = 900 segundos)
-        intervalo_segundos = estado_robo["intervalo_minutos"] * 60
-        await asyncio.sleep(intervalo_segundos)
-
-# Evento do FastAPI que roda assim que o servidor liga
-@app.on_event("startup")
-async def ao_iniciar():
-    # Dispara o loop do robô em background sem travar as requisições da API
-    asyncio.create_task(loop_principal_robo())
-
-# -------------------------------------------------------------
-# ENDPOINTS DA API (Usados pelo Aplicativo Mobile)
-# -------------------------------------------------------------
+# Configuração de CORS: Permite que o index.html faça requisições de qualquer origem
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/status")
-def obter_status():
-    """O aplicativo consulta este endpoint a cada X segundos para atualizar o painel."""
-    return estado_robo
+def get_status():
+    """Retorna o estado atual do robô para o painel web."""
+    return estrategia.obter_status()
 
-@app.post("/controle")
-def alterar_controle(config: ConfiguracaoRequest):
-    """O aplicativo chama este endpoint quando você clica nos botões do celular."""
-    estado_robo["ativo"] = config.ativo
-    estado_robo["simbolo"] = config.simbolo.upper()
-    estado_robo["quantidade"] = config.quantidade
+@app.post("/toggle")
+def toggle_bot():
+    """Liga ou desliga o robô via interface."""
+    novo_estado = estrategia.alternar_estado()
+    return {"status": "sucesso", "ativo": novo_estado}
 
-    acao = "ATIVADO 🟢" if config.ativo else "PAUSADO 🔴"
-    print(f"\n📱 COMANDO RECEBIDO DO APP: Robô {acao} | Par: {estado_robo['simbolo']}\n")
-    
-    return {
-        "mensagem": f"Comando executado! O robô agora está {acao}",
-        "novo_estado": estado_robo
-    }
-
-# -------------------------------------------------------------
-# EXECUÇÃO DO SERVIDOR
-# -------------------------------------------------------------
-if __name__ == "__main__":
-    # Roda o servidor acessível na porta 8000
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.post("/config")
+def update_config(config: ConfigUpdate):
+    """Atualiza o par de negociação ativo."""
+    sucesso = estrategia.atualizar_simbolo(config.simbolo)
+    return {"status": "sucesso" if sucesso else "erro", "simbolo": config.simbolo}
